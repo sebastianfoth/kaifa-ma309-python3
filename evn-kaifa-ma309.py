@@ -1,13 +1,16 @@
 import os
 import serial
+import logging
+import sys
 from gurux_dlms.GXByteBuffer import GXByteBuffer
 from gurux_dlms.GXDLMSTranslator import GXDLMSTranslator
 from gurux_dlms.GXDLMSTranslatorMessage import GXDLMSTranslatorMessage
 from bs4 import BeautifulSoup
 from influxdb_client import InfluxDBClient
+from influxdb_client.client.exceptions import InfluxDBError
 
 # Configuration
-conf_evnKey = os.environ['evn_key']  # Key Provided by EVN
+conf_evn_key = os.environ['evn_key']  # Key Provided by EVN
 conf_comport = os.environ['comport']  # Used Comport (i.e. /dev/ttyUSB0)
 conf_print_value = os.environ['printValue'].lower() == 'true'
 conf_debug = os.environ['debug'].lower() == 'true'
@@ -26,13 +29,15 @@ if conf_influxdb:
 
 #
 tr = GXDLMSTranslator()
-tr.blockCipherKey = GXByteBuffer(conf_evnKey)
+tr.blockCipherKey = GXByteBuffer(conf_evn_key)
 tr.comments = True
 ser = serial.Serial(port=conf_comport,
                     baudrate=2400,
                     bytesize=serial.EIGHTBITS,
                     parity=serial.PARITY_NONE,
                     )
+#
+logging.basicConfig(filename='debug.log', encoding='utf-8', level=logging.DEBUG)
 
 
 def create_xml_from_serial_data(serialdata):
@@ -43,6 +48,7 @@ def create_xml_from_serial_data(serialdata):
     :param serialdata:
     :return: String or None
     """
+    # noinspection PyBroadException
     try:
         msg = GXDLMSTranslatorMessage()
         msg.message = GXByteBuffer(serialdata)
@@ -51,13 +57,23 @@ def create_xml_from_serial_data(serialdata):
         tr.completePdu = True
         while tr.findNextFrame(msg, pdu):
             pdu.clear()
+            logging.info(xml)
             xml += tr.messageToXml(msg)
 
+        if conf_debug:
+            logging.info("Raw XML Data")
+            logging.info("")
+            logging.info(xml)
+            logging.info("")
+            logging.info("End of raw XML Data")
+
         return xml
-    except:
-        if conf_print_value:
-            print('Unable to extract XML due to invalid data')
-        return None
+    except Exception as e:
+        if conf_debug:
+            logging.warning('Unable to create raw XML data: ' + repr(e))
+            logging.warning('Restarting..')
+            os.execv(sys.executable, ['python'] + sys.argv)
+            return None
 
 
 def extract_data_from_xml(xmldata):
@@ -66,41 +82,48 @@ def extract_data_from_xml(xmldata):
     :param xmldata:
     :return:
     """
-    soup = BeautifulSoup(xmldata, 'lxml')
+    try:
+        soup = BeautifulSoup(xmldata, 'lxml')
 
-    results_32 = soup.find_all('uint32')
-    results_16 = soup.find_all('uint16')
+        results_32 = soup.find_all('uint32')
+        results_16 = soup.find_all('uint16')
 
-    #
-    wirkenergie_p = int(str(results_32)[16:16 + 8], 16)
-    wirkenergie_n = int(str(results_32)[52:52 + 8], 16)
+        #
+        wirkenergie_p = int(str(results_32)[16:16 + 8], 16)
+        wirkenergie_n = int(str(results_32)[52:52 + 8], 16)
 
-    momentanleistung_p = int(str(results_32)[88:88 + 8], 16)
-    momentanleistung_n = int(str(results_32)[124:124 + 8], 16)
+        momentanleistung_p = int(str(results_32)[88:88 + 8], 16)
+        momentanleistung_n = int(str(results_32)[124:124 + 8], 16)
 
-    spannung_l1 = int(str(results_16)[16:20], 16) / 10
-    spannung_l2 = int(str(results_16)[48:52], 16) / 10
-    spannung_l3 = int(str(results_16)[80:84], 16) / 10
+        spannung_l1 = int(str(results_16)[16:20], 16) / 10
+        spannung_l2 = int(str(results_16)[48:52], 16) / 10
+        spannung_l3 = int(str(results_16)[80:84], 16) / 10
 
-    strom_l1 = int(str(results_16)[112:116], 16) / 100
-    strom_l2 = int(str(results_16)[144:148], 16) / 100
-    strom_l3 = int(str(results_16)[176:180], 16) / 100
+        strom_l1 = int(str(results_16)[112:116], 16) / 100
+        strom_l2 = int(str(results_16)[144:148], 16) / 100
+        strom_l3 = int(str(results_16)[176:180], 16) / 100
 
-    leistungsfaktor = int(str(results_16)[208:212], 16) / 1000
+        leistungsfaktor = int(str(results_16)[208:212], 16) / 1000
 
-    return {
-        "WirkenergieP": wirkenergie_p,
-        "WirkenergieN": wirkenergie_n,
-        "MomentanleistungP": momentanleistung_p,
-        "MomentanleistungN": momentanleistung_n,
-        "SpannungL1": spannung_l1,
-        "SpannungL2": spannung_l2,
-        "SpannungL3": spannung_l3,
-        "StromL1": strom_l1,
-        "StromL2": strom_l2,
-        "StromL3": strom_l3,
-        "Leistungsfaktor": leistungsfaktor,
-    }
+        return {
+            "WirkenergieP": wirkenergie_p,
+            "WirkenergieN": wirkenergie_n,
+            "MomentanleistungP": momentanleistung_p,
+            "MomentanleistungN": momentanleistung_n,
+            "SpannungL1": spannung_l1,
+            "SpannungL2": spannung_l2,
+            "SpannungL3": spannung_l3,
+            "StromL1": strom_l1,
+            "StromL2": strom_l2,
+            "StromL3": strom_l3,
+            "Leistungsfaktor": leistungsfaktor,
+        }
+    except Exception as e:
+        if conf_debug:
+            logging.warning('Unable to extract XML data: ' + repr(e))
+            logging.warning('Restarting..')
+            os.execv(sys.executable, ['python'] + sys.argv)
+        return None
 
 
 def print_data(extracted_data_kaifa):
@@ -109,23 +132,19 @@ def print_data(extracted_data_kaifa):
     :param extracted_data_kaifa:
     :return:
     """
-    print('---------- Extrahierte Daten ----------')
-    print()
-    print('Wirkenergie+: ' + str(extracted_data_kaifa["WirkenergieP"]) + ' Wh')
-    print('Wirkenergie-: ' + str(extracted_data_kaifa["WirkenergieN"]) + ' Wh')
-    print('Momentanleistung+: ' + str(extracted_data_kaifa["MomentanleistungP"]) + ' W')
-    print('Momentanleistung-: ' + str(extracted_data_kaifa["MomentanleistungN"]) + ' W')
-    print('Spannung L1: ' + str(extracted_data_kaifa["SpannungL1"]) + ' V')
-    print('Spannung L2: ' + str(extracted_data_kaifa["SpannungL2"]) + ' V')
-    print('Spannung L3: ' + str(extracted_data_kaifa["SpannungL3"]) + ' V')
-    print('Strom L1: ' + str(extracted_data_kaifa["StromL1"]) + ' A')
-    print('Strom L2: ' + str(extracted_data_kaifa["StromL2"]) + ' A')
-    print('Strom L3: ' + str(extracted_data_kaifa["StromL3"]) + ' A')
-    print('Leistungsfaktor: ' + str(extracted_data_kaifa["Leistungsfaktor"]))
-    print('Momentanleistung: ' + str(
+    logging.info('Wirkenergie+: ' + str(extracted_data_kaifa["WirkenergieP"]) + ' Wh')
+    logging.info('Wirkenergie-: ' + str(extracted_data_kaifa["WirkenergieN"]) + ' Wh')
+    logging.info('Momentanleistung+: ' + str(extracted_data_kaifa["MomentanleistungP"]) + ' W')
+    logging.info('Momentanleistung-: ' + str(extracted_data_kaifa["MomentanleistungN"]) + ' W')
+    logging.info('Spannung L1: ' + str(extracted_data_kaifa["SpannungL1"]) + ' V')
+    logging.info('Spannung L2: ' + str(extracted_data_kaifa["SpannungL2"]) + ' V')
+    logging.info('Spannung L3: ' + str(extracted_data_kaifa["SpannungL3"]) + ' V')
+    logging.info('Strom L1: ' + str(extracted_data_kaifa["StromL1"]) + ' A')
+    logging.info('Strom L2: ' + str(extracted_data_kaifa["StromL2"]) + ' A')
+    logging.info('Strom L3: ' + str(extracted_data_kaifa["StromL3"]) + ' A')
+    logging.info('Leistungsfaktor: ' + str(extracted_data_kaifa["Leistungsfaktor"]))
+    logging.info('Momentanleistung: ' + str(
         extracted_data_kaifa["MomentanleistungP"] - extracted_data_kaifa["MomentanleistungN"]) + ' W')
-    print()
-    print('---------------------------------------')
 
 
 def write_to_influxdb2(extracted_data_kaifa):
@@ -134,64 +153,69 @@ def write_to_influxdb2(extracted_data_kaifa):
     :param extracted_data_kaifa:
     :return:
     """
-    write_api = client_influxdb.write_api()
 
-    #
-    write_api.write(conf_influxdb_bucket,
-                    conf_influxdb_org,
-                    [
-                        {
-                            "measurement": "strom",
-                            "fields": {"wirkenergieP": extracted_data_kaifa["WirkenergieP"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {"wirkenergieN": extracted_data_kaifa["WirkenergieN"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {"momentanleistungP": extracted_data_kaifa["MomentanleistungP"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {"momentanleistungN": extracted_data_kaifa["MomentanleistungN"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {"spannungL1": extracted_data_kaifa["SpannungL1"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {"spannungL2": extracted_data_kaifa["SpannungL2"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {"spannungL3": extracted_data_kaifa["SpannungL3"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {"stromL1": extracted_data_kaifa["StromL1"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {"stromL2": extracted_data_kaifa["StromL2"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {"stromL3": extracted_data_kaifa["StromL3"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {"leistungsfaktor": extracted_data_kaifa["Leistungsfaktor"]},
-                        },
-                        {
-                            "measurement": "strom",
-                            "fields": {
-                                "momentanleistung": extracted_data_kaifa["MomentanleistungP"] - extracted_data_kaifa[
-                                    "MomentanleistungN"]},
-                        },
-                    ]
-                    )
+    try:
+        write_api = client_influxdb.write_api()
+
+        #
+        write_api.write(conf_influxdb_bucket,
+                        conf_influxdb_org,
+                        [
+                            {
+                                "measurement": "strom",
+                                "fields": {"wirkenergieP": extracted_data_kaifa["WirkenergieP"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {"wirkenergieN": extracted_data_kaifa["WirkenergieN"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {"momentanleistungP": extracted_data_kaifa["MomentanleistungP"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {"momentanleistungN": extracted_data_kaifa["MomentanleistungN"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {"spannungL1": extracted_data_kaifa["SpannungL1"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {"spannungL2": extracted_data_kaifa["SpannungL2"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {"spannungL3": extracted_data_kaifa["SpannungL3"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {"stromL1": extracted_data_kaifa["StromL1"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {"stromL2": extracted_data_kaifa["StromL2"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {"stromL3": extracted_data_kaifa["StromL3"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {"leistungsfaktor": extracted_data_kaifa["Leistungsfaktor"]},
+                            },
+                            {
+                                "measurement": "strom",
+                                "fields": {
+                                    "momentanleistung": extracted_data_kaifa["MomentanleistungP"] -
+                                                        extracted_data_kaifa["MomentanleistungN"]},
+                            },
+                        ]
+                        )
+    except InfluxDBError as e:
+        if conf_debug:
+            logging.warning("Unable to write data to InfluxDB: " + repr(e))
 
 
 # Main Loop
@@ -201,7 +225,11 @@ while 1:
 
     # Debug output
     if conf_debug:
-        print(data)
+        logging.info("Raw Serial Data")
+        logging.info("")
+        logging.info(data)
+        logging.info("")
+        logging.info("End of Raw Serial Data")
 
     # XML Creation
     xml = create_xml_from_serial_data(data)
@@ -210,10 +238,16 @@ while 1:
 
     # Data extraction
     extracted_data = extract_data_from_xml(xml)
+    if extracted_data is None:
+        continue
 
     # Print data
     if conf_print_value:
+        logging.info("Extracted Data")
+        logging.info("")
         print_data(extracted_data)
+        logging.info("")
+        logging.info("End of Extracted Data")
 
     # InfluxDB
     if conf_influxdb:
