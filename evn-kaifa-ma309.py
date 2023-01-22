@@ -57,7 +57,6 @@ def create_xml_from_serial_data(serialdata):
         tr.completePdu = True
         while tr.findNextFrame(msg, pdu):
             pdu.clear()
-            logging.info(xml)
             xml += tr.messageToXml(msg)
 
         if conf_debug:
@@ -71,7 +70,7 @@ def create_xml_from_serial_data(serialdata):
     except Exception as e:
         if conf_debug:
             logging.warning('Unable to create raw XML data: ' + repr(e))
-            logging.warning('Restarting..')
+            logging.warning('Restarting as this error is non-recoverable..')
             os.execv(sys.executable, ['python'] + sys.argv)
             return None
 
@@ -121,7 +120,7 @@ def extract_data_from_xml(xmldata):
     except Exception as e:
         if conf_debug:
             logging.warning('Unable to extract XML data: ' + repr(e))
-            logging.warning('Restarting..')
+            logging.warning('Restarting as this error is non-recoverable..')
             os.execv(sys.executable, ['python'] + sys.argv)
         return None
 
@@ -132,19 +131,23 @@ def print_data(extracted_data_kaifa):
     :param extracted_data_kaifa:
     :return:
     """
-    logging.info('Wirkenergie+: ' + str(extracted_data_kaifa["WirkenergieP"]) + ' Wh')
-    logging.info('Wirkenergie-: ' + str(extracted_data_kaifa["WirkenergieN"]) + ' Wh')
-    logging.info('Momentanleistung+: ' + str(extracted_data_kaifa["MomentanleistungP"]) + ' W')
-    logging.info('Momentanleistung-: ' + str(extracted_data_kaifa["MomentanleistungN"]) + ' W')
-    logging.info('Spannung L1: ' + str(extracted_data_kaifa["SpannungL1"]) + ' V')
-    logging.info('Spannung L2: ' + str(extracted_data_kaifa["SpannungL2"]) + ' V')
-    logging.info('Spannung L3: ' + str(extracted_data_kaifa["SpannungL3"]) + ' V')
-    logging.info('Strom L1: ' + str(extracted_data_kaifa["StromL1"]) + ' A')
-    logging.info('Strom L2: ' + str(extracted_data_kaifa["StromL2"]) + ' A')
-    logging.info('Strom L3: ' + str(extracted_data_kaifa["StromL3"]) + ' A')
-    logging.info('Leistungsfaktor: ' + str(extracted_data_kaifa["Leistungsfaktor"]))
-    logging.info('Momentanleistung: ' + str(
+    print('---------- Extrahierte Daten ----------')
+    print('')
+    print('Wirkenergie+: ' + str(extracted_data_kaifa["WirkenergieP"]) + ' Wh')
+    print('Wirkenergie-: ' + str(extracted_data_kaifa["WirkenergieN"]) + ' Wh')
+    print('Momentanleistung+: ' + str(extracted_data_kaifa["MomentanleistungP"]) + ' W')
+    print('Momentanleistung-: ' + str(extracted_data_kaifa["MomentanleistungN"]) + ' W')
+    print('Spannung L1: ' + str(extracted_data_kaifa["SpannungL1"]) + ' V')
+    print('Spannung L2: ' + str(extracted_data_kaifa["SpannungL2"]) + ' V')
+    print('Spannung L3: ' + str(extracted_data_kaifa["SpannungL3"]) + ' V')
+    print('Strom L1: ' + str(extracted_data_kaifa["StromL1"]) + ' A')
+    print('Strom L2: ' + str(extracted_data_kaifa["StromL2"]) + ' A')
+    print('Strom L3: ' + str(extracted_data_kaifa["StromL3"]) + ' A')
+    print('Leistungsfaktor: ' + str(extracted_data_kaifa["Leistungsfaktor"]))
+    print('Momentanleistung: ' + str(
         extracted_data_kaifa["MomentanleistungP"] - extracted_data_kaifa["MomentanleistungN"]) + ' W')
+    print('')
+    print('---------------------------------------')
 
 
 def write_to_influxdb2(extracted_data_kaifa):
@@ -243,11 +246,7 @@ while 1:
 
     # Print data
     if conf_print_value:
-        logging.info("Extracted Data")
-        logging.info("")
         print_data(extracted_data)
-        logging.info("")
-        logging.info("End of Extracted Data")
 
     # InfluxDB
     if conf_influxdb:
