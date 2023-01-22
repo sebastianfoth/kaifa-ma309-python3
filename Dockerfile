@@ -6,4 +6,4 @@ ADD . /script/
 RUN pip install -r requirements.txt
 
 EXPOSE 5000
-CMD ["python", "/script/evn-kaifa-ma309.py"]
+CMD ["python", "/script/evn-kaifa-ma309.py", "--log=INFO"]
