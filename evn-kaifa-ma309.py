@@ -27,6 +27,9 @@ if conf_influxdb:
     # Create Client
     client_influxdb = InfluxDBClient(url=conf_influxdb_server, token=conf_influxdb_token, org=conf_influxdb_org)
 
+    # Write API init
+    write_api = client_influxdb.write_api()
+
 #
 tr = GXDLMSTranslator()
 tr.blockCipherKey = GXByteBuffer(conf_evn_key)
@@ -158,7 +161,7 @@ def write_to_influxdb2(extracted_data_kaifa):
     """
 
     try:
-        write_api = client_influxdb.write_api()
+
 
         #
         write_api.write(conf_influxdb_bucket,
